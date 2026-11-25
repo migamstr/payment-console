@@ -95,6 +95,38 @@ cd gateway && mvn package -DskipTests && java -jar target/*.jar
 
 ---
 
+## 数据层
+
+业务数据走数据库，不是内存 mock。
+
+| 环境 | 数据库 | 说明 |
+|---|---|---|
+| 生产 / Docker | **MySQL 8** | `db/init.sql` 自动建表灌数 |
+| 本地 / 测试 | **H2（MODE=MySQL）** | 启动时自动执行 `schema.sql` + `data.sql` |
+
+本地跑 H2（不需要装 MySQL）：
+
+```bash
+cd console && mvn package -DskipTests
+java -jar target/payment-console-1.0.0.jar --spring.profiles.active=h2
+```
+
+接口层统一用 `JdbcTemplate`，SQL 里用列别名转驼峰，返回结构与 MySQL 环境一致。
+
+**读写已验证**：
+
+```
+POST /prod-api/system/user/add          → 200，落库
+GET  /prod-api/system/user/list         → 返回刚写入的记录
+POST /prod-api/finance/deposit/create   → 200，生成订单号 + 收款地址
+GET  /prod-api/finance/deposit/list     → total 从 4 变 5
+POST /prod-api/finance/deposit/callback → 订单状态 待支付 → 已到账
+```
+
+> H2 环境的两处兼容处理：`window` / `action` / `level` / `value` 这几个 SQL 保留字改成了
+> `time_window` / `action_type` / `agent_level` / `list_value`；`data.sql` 用 `MERGE INTO`
+> 保证可重复执行。
+
 ## 目录结构
 
 ```

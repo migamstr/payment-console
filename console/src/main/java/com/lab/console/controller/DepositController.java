@@ -1,69 +1,34 @@
 package com.lab.console.controller;
 
 import com.lab.console.security.JwtUtil;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * 充值与对账：充值单 / 三方代收 / 三方代付 / 回调。
  *
- * 复刻支付后台的标准资金入口：
- *   · 会员发起充值 → 生成充值单 + 收款地址
- *   · 通道回调通知 → 更新订单状态
- *   · 按通道 / 日期汇总对账
+ * 充值单走数据库；批次对账数据量小，暂留内存。
  */
 @RestController
 @RequestMapping("/prod-api/finance")
 public class DepositController {
 
     private final JwtUtil jwtUtil;
+    private final JdbcTemplate jdbc;
 
-    public DepositController(JwtUtil jwtUtil) {
+    public DepositController(JwtUtil jwtUtil, JdbcTemplate jdbc) {
         this.jwtUtil = jwtUtil;
+        this.jdbc = jdbc;
     }
 
-    private static final List<Map<String, Object>> DEPOSITS = new ArrayList<>(List.of(
-            row("orderNo", "DP20260101001", "memberId", 159, "userName", "u_159",
-                "amount", 100.00, "actualAmount", 100.00, "fee", 0.00,
-                "channelId", 63, "channelName", "TRC20-direct", "merchantId", 72, "merchantName", "ChannelA",
-                "address", "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", "txid", "0xabc…1f2",
-                "status", 1, "statusText", "已到账", "createTime", "2026-01-01 09:12:00",
-                "finishTime", "2026-01-01 09:13:41"),
-            row("orderNo", "DP20260101002", "memberId", 160, "userName", "u_160",
-                "amount", 287.88, "actualAmount", 287.88, "fee", 0.00,
-                "channelId", 63, "channelName", "TRC20-direct", "merchantId", 100, "merchantName", "ChannelB",
-                "address", "TYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY", "txid", "0xdef…2a3",
-                "status", 1, "statusText", "已到账", "createTime", "2026-01-01 10:02:31",
-                "finishTime", "2026-01-01 10:04:02"),
-            row("orderNo", "DP20260101003", "memberId", 159, "userName", "u_159",
-                "amount", 500.00, "actualAmount", 0.00, "fee", 0.00,
-                "channelId", 63, "channelName", "TRC20-direct", "merchantId", 72, "merchantName", "ChannelA",
-                "address", "TZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ", "txid", null,
-                "status", 0, "statusText", "待支付", "createTime", "2026-01-01 11:20:08",
-                "finishTime", null),
-            row("orderNo", "DP20260101004", "memberId", 160, "userName", "u_160",
-                "amount", 50.00, "actualAmount", 0.00, "fee", 0.00,
-                "channelId", 22, "channelName", "C2C-wallet", "merchantId", 22, "merchantName", "ChannelC",
-                "address", null, "txid", null,
-                "status", 2, "statusText", "已过期", "createTime", "2026-01-01 08:01:00",
-                "finishTime", "2026-01-01 08:31:00")
-    ));
-
-    private static final List<Map<String, Object>> THIRD_COLLECT = new ArrayList<>(List.of(
-            row("id", 1, "batchNo", "TC20260101", "channelId", 63, "channelName", "TRC20-direct",
-                "merchantId", 72, "merchantName", "ChannelA", "orderCount", 1284,
-                "totalAmount", 486230.00, "fee", 972.46, "netAmount", 485257.54,
-                "status", 1, "settleDate", "2026-01-01", "createTime", "2026-01-02 01:00:00")
-    ));
-
-    private static final List<Map<String, Object>> THIRD_PAYMENT = new ArrayList<>(List.of(
-            row("id", 1, "batchNo", "TP20260101", "channelId", 63, "channelName", "TRC20-direct",
-                "merchantId", 72, "merchantName", "ChannelA", "orderCount", 42,
-                "totalAmount", 18620.00, "fee", 84.00, "netAmount", 18536.00,
-                "status", 1, "settleDate", "2026-01-01", "createTime", "2026-01-02 01:00:00")
-    ));
+    private static final String DEPOSIT_COLS =
+            "order_no AS \"orderNo\", member_id AS \"memberId\", user_name AS \"userName\", " +
+            "amount, actual_amount AS \"actualAmount\", fee, channel_id AS \"channelId\", " +
+            "channel_name AS \"channelName\", merchant_id AS \"merchantId\", merchant_name AS \"merchantName\", " +
+            "address, txid, status, status_text AS \"statusText\", " +
+            "create_time AS \"createTime\", finish_time AS \"finishTime\"";
 
     // ══════════════════════════════════════════════════════
     // 充值单
@@ -78,13 +43,30 @@ public class DepositController {
                                            @RequestParam(required = false) String beginTime,
                                            @RequestParam(required = false) String endTime) {
         if (unauth(auth)) return deny("/finance/deposit/list");
-        List<Map<String, Object>> rows = DEPOSITS.stream()
-                .filter(d -> orderNo == null || orderNo.isBlank() || String.valueOf(d.get("orderNo")).contains(orderNo))
-                .filter(d -> memberId == null || memberId.equals(((Number) d.get("memberId")).longValue()))
-                .filter(d -> status == null || status.equals(((Number) d.get("status")).intValue()))
-                .filter(d -> beginTime == null || String.valueOf(d.get("createTime")).compareTo(beginTime) >= 0)
-                .filter(d -> endTime == null || String.valueOf(d.get("createTime")).compareTo(endTime) <= 0)
-                .collect(Collectors.toList());
+        StringBuilder sql = new StringBuilder("SELECT " + DEPOSIT_COLS + " FROM deposit WHERE 1=1");
+        List<Object> args = new ArrayList<>();
+        if (orderNo != null && !orderNo.isBlank()) {
+            sql.append(" AND order_no LIKE ?");
+            args.add("%" + orderNo + "%");
+        }
+        if (memberId != null) {
+            sql.append(" AND member_id = ?");
+            args.add(memberId);
+        }
+        if (status != null) {
+            sql.append(" AND status = ?");
+            args.add(status);
+        }
+        if (beginTime != null && !beginTime.isBlank()) {
+            sql.append(" AND create_time >= ?");
+            args.add(beginTime);
+        }
+        if (endTime != null && !endTime.isBlank()) {
+            sql.append(" AND create_time <= ?");
+            args.add(endTime);
+        }
+        sql.append(" ORDER BY create_time DESC");
+        List<Map<String, Object>> rows = jdbc.queryForList(sql.toString(), args.toArray());
         return page(rows, pageNum, pageSize);
     }
 
@@ -92,19 +74,12 @@ public class DepositController {
     public Map<String, Object> depositDetail(@RequestHeader(value = "Authorization", required = false) String auth,
                                              @PathVariable String orderNo) {
         if (unauth(auth)) return deny("/finance/deposit/detail/" + orderNo);
-        for (Map<String, Object> d : DEPOSITS) {
-            if (orderNo.equals(d.get("orderNo"))) {
-                return Map.of("code", 200, "data", d);
-            }
-        }
-        return Map.of("code", 500, "msg", "订单不存在");
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT " + DEPOSIT_COLS + " FROM deposit WHERE order_no = ?", orderNo);
+        if (rows.isEmpty()) return Map.of("code", 500, "msg", "订单不存在");
+        return Map.of("code", 200, "data", rows.get(0));
     }
 
-    /**
-     * 创建充值单 —— 返回收款地址。
-     *
-     * 真实系统里这一步会调用通道侧的「获取充值地址」接口，并把地址回给前端。
-     */
     @PostMapping("/deposit/create")
     public Map<String, Object> depositCreate(@RequestHeader(value = "Authorization", required = false) String auth,
                                              @RequestBody Map<String, Object> body) {
@@ -121,27 +96,29 @@ public class DepositController {
 
         String orderNo = "DP" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new Date())
                 + String.format("%03d", new Random().nextInt(1000));
-
         int channelId = body.get("channelId") instanceof Number n ? n.intValue() : 63;
         int merchantId = body.get("merchantId") instanceof Number n2 ? n2.intValue() : 72;
+        String address = "T" + randomBase58(33);
 
-        Map<String, Object> d = row(
-                "orderNo", orderNo,
-                "memberId", body.getOrDefault("memberId", 0),
-                "userName", body.getOrDefault("userName", ""),
-                "amount", amount, "actualAmount", 0.00, "fee", 0.00,
-                "channelId", channelId, "channelName", channelName(channelId),
-                "merchantId", merchantId, "merchantName", merchantName(merchantId),
-                "address", "T" + randomBase58(33),
-                "txid", null, "status", 0, "statusText", "待支付",
-                "createTime", now(), "finishTime", null
-        );
-        DEPOSITS.add(0, d);
+        try {
+            jdbc.update("INSERT INTO deposit(order_no, member_id, user_name, amount, actual_amount, fee, " +
+                        "channel_id, channel_name, merchant_id, merchant_name, address, txid, status, status_text, " +
+                        "create_time, finish_time) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    orderNo,
+                    body.getOrDefault("memberId", 0),
+                    body.getOrDefault("userName", ""),
+                    amount, 0.00, 0.00,
+                    channelId, channelName(channelId),
+                    merchantId, merchantName(merchantId),
+                    address, null, 0, "待支付", now(), null);
+        } catch (Exception e) {
+            return Map.of("code", 500, "msg", "创建失败: " + e.getMessage());
+        }
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("orderNo", orderNo);
         data.put("amount", amount);
-        data.put("address", d.get("address"));
+        data.put("address", address);
         data.put("expireAt", System.currentTimeMillis() + 30 * 60 * 1000);
         return Map.of("code", 200, "msg", "success", "data", data);
     }
@@ -149,65 +126,70 @@ public class DepositController {
     /**
      * 通道回调。
      *
-     * ⚠️ 真实系统里这一类回调**经常不做签名校验**，只靠"订单号 + 金额"匹配。
-     * 这个接口保留了那个形态 —— 上生产前必须补验签（见 docs/CONFIG.md 的检查清单）。
+     * ⚠️ 目前不校验签名，只靠 orderNo 匹配。生产环境必须补验签（见 docs/CONFIG.md）。
      */
     @PostMapping("/deposit/callback")
     public Map<String, Object> depositCallback(@RequestBody Map<String, Object> body) {
         Object orderNoObj = body.get("orderNo");
-        if (orderNoObj == null) {
-            return Map.of("code", 500, "msg", "orderNo 不能为空");
-        }
+        if (orderNoObj == null) return Map.of("code", 500, "msg", "orderNo 不能为空");
         String orderNo = orderNoObj.toString();
-        for (Map<String, Object> d : DEPOSITS) {
-            if (orderNo.equals(d.get("orderNo"))) {
-                if (((Number) d.get("status")).intValue() != 0) {
-                    return Map.of("code", 200, "msg", "订单已处理");
-                }
-                Object actual = body.get("actualAmount");
-                d.put("actualAmount", actual != null ? Double.parseDouble(actual.toString()) : d.get("amount"));
-                d.put("txid", body.getOrDefault("txid", null));
-                d.put("status", 1);
-                d.put("statusText", "已到账");
-                d.put("finishTime", now());
-                return Map.of("code", 200, "msg", "success");
-            }
+
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT status FROM deposit WHERE order_no = ?", orderNo);
+        if (rows.isEmpty()) return Map.of("code", 500, "msg", "订单不存在");
+        if (((Number) rows.get(0).get("status")).intValue() != 0) {
+            return Map.of("code", 200, "msg", "订单已处理");
         }
-        return Map.of("code", 500, "msg", "订单不存在");
+
+        double actual = body.get("actualAmount") instanceof Number n
+                ? n.doubleValue()
+                : jdbc.queryForObject("SELECT amount FROM deposit WHERE order_no = ?", Double.class, orderNo);
+        jdbc.update("UPDATE deposit SET actual_amount=?, txid=?, status=1, status_text='已到账', finish_time=? WHERE order_no=?",
+                actual,
+                body.getOrDefault("txid", null),
+                now(), orderNo);
+        return Map.of("code", 200, "msg", "success");
     }
 
-    /** 按通道汇总。 */
     @GetMapping("/deposit/summary")
     public Map<String, Object> depositSummary(@RequestHeader(value = "Authorization", required = false) String auth,
                                               @RequestParam(required = false) String beginTime,
                                               @RequestParam(required = false) String endTime) {
         if (unauth(auth)) return deny("/finance/deposit/summary");
-        Map<Integer, double[]> agg = new LinkedHashMap<>();
-        for (Map<String, Object> d : DEPOSITS) {
-            if (((Number) d.get("status")).intValue() != 1) continue;
-            int ch = ((Number) d.get("channelId")).intValue();
-            double amt = ((Number) d.get("actualAmount")).doubleValue();
-            agg.computeIfAbsent(ch, k -> new double[]{0, 0});
-            agg.get(ch)[0] += amt;
-            agg.get(ch)[1] += 1;
-        }
-        List<Map<String, Object>> rows = new ArrayList<>();
-        for (Map.Entry<Integer, double[]> e : agg.entrySet()) {
-            Map<String, Object> r = new LinkedHashMap<>();
-            r.put("channelId", e.getKey());
-            r.put("channelName", channelName(e.getKey()));
-            r.put("amount", Math.round(e.getValue()[0] * 100) / 100.0);
-            r.put("count", (long) e.getValue()[1]);
-            rows.add(r);
-        }
-        double total = rows.stream().mapToDouble(r -> ((Number) r.get("amount")).doubleValue()).sum();
+        StringBuilder sql = new StringBuilder(
+                "SELECT channel_id AS \"channelId\", channel_name AS \"channelName\", " +
+                "SUM(actual_amount) AS \"amount\", COUNT(*) AS \"count\" " +
+                "FROM deposit WHERE status = 1");
+        List<Object> args = new ArrayList<>();
+        if (beginTime != null && !beginTime.isBlank()) { sql.append(" AND create_time >= ?"); args.add(beginTime); }
+        if (endTime != null && !endTime.isBlank()) { sql.append(" AND create_time <= ?"); args.add(endTime); }
+        sql.append(" GROUP BY channel_id, channel_name");
+        List<Map<String, Object>> rows = jdbc.queryForList(sql.toString(), args.toArray());
+
+        double total = rows.stream()
+                .mapToDouble(r -> r.get("amount") instanceof Number n ? n.doubleValue() : 0)
+                .sum();
         return Map.of("code", 200, "msg", "success", "rows", rows,
                       "totalAmount", Math.round(total * 100) / 100.0);
     }
 
     // ══════════════════════════════════════════════════════
-    // 三方代收 / 代付
+    // 三方代收 / 代付（批次对账）
     // ══════════════════════════════════════════════════════
+    private static final List<Map<String, Object>> THIRD_COLLECT = new ArrayList<>(List.of(
+            row("id", 1, "batchNo", "TC20260101", "channelId", 63, "channelName", "TRC20-direct",
+                "merchantId", 72, "merchantName", "ChannelA", "orderCount", 1284,
+                "totalAmount", 486230.00, "fee", 972.46, "netAmount", 485257.54,
+                "status", 1, "settleDate", "2026-01-01", "createTime", "2026-01-02 01:00:00")
+    ));
+
+    private static final List<Map<String, Object>> THIRD_PAYMENT = new ArrayList<>(List.of(
+            row("id", 1, "batchNo", "TP20260101", "channelId", 63, "channelName", "TRC20-direct",
+                "merchantId", 72, "merchantName", "ChannelA", "orderCount", 42,
+                "totalAmount", 18620.00, "fee", 84.00, "netAmount", 18536.00,
+                "status", 1, "settleDate", "2026-01-01", "createTime", "2026-01-02 01:00:00")
+    ));
+
     @GetMapping("/thirdCollect/list")
     public Map<String, Object> thirdCollectList(@RequestHeader(value = "Authorization", required = false) String auth,
                                                 @RequestParam(defaultValue = "1") int pageNum,
