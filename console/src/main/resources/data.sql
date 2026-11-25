@@ -1,12 +1,12 @@
 -- 初始数据（H2 / MySQL 双兼容，可重复执行）
 
 -- 用户
-MERGE INTO sys_user (user_id, user_name, nick_name, dept_name, phonenumber, email, status, create_time) KEY(user_id) VALUES
- (1, 'admin',   '超级管理员', '总部',   '138****8000', 'admin@example.internal',  '0', '2025-01-01 00:00:00'),
- (2, 'ops',     '运营',       '运营部', '139****9000', 'ops@example.internal',    '0', '2025-03-12 10:22:31'),
- (3, 'finance', '财务',       '财务部', '137****7000', 'fin@example.internal',    '0', '2025-03-12 10:25:04'),
- (4, 'agent01', '代理一号',   '渠道部', '136****6000', 'agent01@example.internal','0', '2025-06-08 09:12:00'),
- (5, 'risk',    '风控',       '风控部', '135****5000', 'risk@example.internal',   '0', '2025-06-20 14:03:11');
+MERGE INTO sys_user (user_id, user_name, nick_name, dept_name, phonenumber, email, password, status, create_time) KEY(user_id) VALUES
+ (1, 'admin',   '超级管理员', '总部',   '138****8000', 'admin@example.com',  '21232f297a57a5a743894a0e4a801fc3', '0', '2025-01-01 00:00:00'),
+ (2, 'ops',     '运营',       '运营部', '139****9000', 'ops@example.com',    'e10adc3949ba59abbe56e057f20f883e', '0', '2025-03-12 10:22:31'),
+ (3, 'finance', '财务',       '财务部', '137****7000', 'fin@example.com',    'e10adc3949ba59abbe56e057f20f883e', '0', '2025-03-12 10:25:04'),
+ (4, 'agent01', '代理一号',   '渠道部', '136****6000', 'agent01@example.com','e10adc3949ba59abbe56e057f20f883e','0', '2025-06-08 09:12:00'),
+ (5, 'risk',    '风控',       '风控部', '135****5000', 'risk@example.com',   'e10adc3949ba59abbe56e057f20f883e',   '0', '2025-06-20 14:03:11');
 
 -- 角色
 MERGE INTO sys_role (role_id, role_name, role_key, role_sort, status, user_count) KEY(role_id) VALUES

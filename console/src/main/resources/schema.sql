@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS sys_user (
     dept_name    VARCHAR(64),
     phonenumber  VARCHAR(32),
     email        VARCHAR(128),
+    password     VARCHAR(64),
     status       VARCHAR(2)   DEFAULT '0',
     create_time  VARCHAR(32)
 );

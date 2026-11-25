@@ -71,6 +71,10 @@ public class SecurityConfig {
             // ⚠️ 洞：doc.html / swagger 也放行
             .antMatchers("/doc.html", "/webjars/**", "/swagger-resources/**",
                          "/v2/api-docs", "/v3/api-docs/**").permitAll()
+            // ⚠️ 静态泄漏面：运维遗留的备份/配置/上传目录
+            //    真实系统里这些路径常常忘了加鉴权，或被 nginx 直接当静态文件返回
+            .antMatchers("/backup.sql", "/db.sql", "/payment_lab.sql",
+                         "/.env", "/.env.prod", "/.git/**", "/upload/**").permitAll()
             .anyRequest().authenticated()
             .and()
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
