@@ -1,0 +1,49 @@
+server:
+  port: 8081
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: payment-gateway
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://mysql:3306/payment_lab?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: lab
+    password: lab_p@ss_2026
+    druid:
+      initial-size: 2
+      min-idle: 2
+      max-active: 10
+      stat-view-servlet:
+        enabled: true
+        url-pattern: /druid/*
+        allow:
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+# ⚠️ 示例配置：聚合网关**故意不装鉴权**
+#    真实系统里 75 个 operation 全标了 x-auth-token，但过滤器一个都没装配。
+lab:
+  gateway:
+    # true = 复刻真实（零鉴权）；false = 加固后（需要 token）
+    no-auth: true
+    # 哪些通道不校验收款地址归属（复刻"通道差异"）
+    unchecked-channels: "63-72,63-100"
+  # Shiro 的 cipherKey —— 本项目里改成启动随机（复刻 RuoYi >= 4.6.2 的默认行为）
+  # 蓝队要做的是**确认它是随机的**，而不是继续爆破字典
+  shiro:
+    random-cipher-key: true
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+logging:
+  level:
+    root: INFO
+    com.lab: DEBUG

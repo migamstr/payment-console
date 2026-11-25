@@ -1,0 +1,69 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+    session:
+      cookie:
+        name: LABSESSION
+
+spring:
+  application:
+    name: payment-console
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # ⚠️ 这些值会出现在 /actuator/env 里（示例故意留的洞）
+    url: jdbc:mysql://mysql:3306/payment_lab?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: lab
+    password: lab_p@ss_2026
+    druid:
+      initial-size: 2
+      min-idle: 2
+      max-active: 10
+      # Druid 监控页 —— 本项目里故意不鉴权
+      stat-view-servlet:
+        enabled: true
+        url-pattern: /druid/*
+        allow:
+        login-username: admin
+        login-password: admin
+      web-stat-filter:
+        enabled: true
+        url-pattern: /*
+        exclusions: "*.js,*.gif,*.jpg,*.png,*.css,*.ico,/druid/*"
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+
+# ⚠️ 弱密钥 —— RuoYi 官方默认值，蓝队可直接拿来伪造
+lab:
+  jwt:
+    secret: abcdefghijklmnopqrstuvwxyz
+    expire-minutes: 720
+  # iframeLogin 的 IP 白名单
+  iframe:
+    ip-allowlist: "127.0.0.1,172.16.0.0/12,198.51.100.0/24"
+    timestamp-window-seconds: 300
+
+# actuator：本项目里故意全开（真实系统是"忘了关"）
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always
+
+
+logging:
+  level:
+    root: INFO
+    com.lab: DEBUG

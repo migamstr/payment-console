@@ -1,0 +1,54 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: lab-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root_lab_only
+      MYSQL_DATABASE: payment_lab
+      MYSQL_USER: lab
+      MYSQL_PASSWORD: lab_pass_only
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - mysql-data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot_lab_only"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  console:
+    build: ./console
+    container_name: lab-console
+    environment:
+      SPRING_DATASOURCE_PASSWORD: lab_pass_only
+    depends_on:
+      mysql:
+        condition: service_healthy
+    expose:
+      - "8080"
+
+  gateway:
+    build: ./gateway
+    container_name: lab-gateway
+    environment:
+      SPRING_DATASOURCE_PASSWORD: lab_pass_only
+    depends_on:
+      mysql:
+        condition: service_healthy
+    expose:
+      - "8081"
+
+  edge:
+    image: openresty/openresty:alpine
+    container_name: lab-edge
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/default.conf:/usr/local/openresty/nginx/conf/conf.d/default.conf:ro
+    depends_on:
+      - console
+      - gateway
+
+volumes:
+  mysql-data:
