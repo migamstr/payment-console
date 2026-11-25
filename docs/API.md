@@ -304,3 +304,111 @@ iframe 桥登录。由上层平台（iframe 父页面）调起，用三头签名
 ### `GET /v2/api-docs`
 
 Swagger 文档。**生产环境建议关闭或加内网限制。**
+
+---
+
+## 系统管理 `/prod-api/system`
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/user/list` | 用户列表（`pageNum` / `pageSize` / `userName` / `status`） |
+| GET | `/user/{userId}` | 用户详情（含 `roleIds`） |
+| POST | `/user/add` | 新增用户 |
+| PUT | `/user/edit` | 修改用户 |
+| DELETE | `/user/{userId}` | 删除用户 |
+| GET | `/role/list` | 角色列表 |
+| GET | `/role/optionselect` | 角色下拉选项 |
+| POST | `/role/add` | 新增角色 |
+| GET | `/menu/list` | 菜单列表 |
+| GET | `/menu/treeselect` | 菜单树（`{id, label, children}`） |
+| GET | `/operlog/list` | 操作日志（`title` / `pageNum` / `pageSize`） |
+| GET | `/loginlog/list` | 登录日志（`userName` / `pageNum` / `pageSize`） |
+
+---
+
+## 代理 `/prod-api/agent`
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/list` | 代理列表（`agentName` / `level` / `status`） |
+| GET | `/{agentId}` | 代理详情（含下级 `subAgents`） |
+| GET | `/tree` | 代理层级树 |
+| POST | `/add` | 新增代理 |
+| PUT | `/edit` | 修改代理 |
+| GET | `/commission/list` | 佣金结算单列表（`agentId` / `status`） |
+| POST | `/commission/settle` | 触发结算（`{"settleId": 1}`） |
+
+---
+
+## 充值与对账 `/prod-api/finance`
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/deposit/list` | 充值单列表（`orderNo` / `memberId` / `status` / `beginTime` / `endTime`） |
+| GET | `/deposit/detail/{orderNo}` | 充值单详情 |
+| POST | `/deposit/create` | 创建充值单，返回收款地址 |
+| POST | `/deposit/callback` | 通道回调（更新订单状态） |
+| GET | `/deposit/summary` | 按通道汇总 |
+| GET | `/thirdCollect/list` | 三方代收批次 |
+| GET | `/thirdPayment/list` | 三方代付批次 |
+| GET | `/withdraw` | 出款单列表（在 `BusinessController` 里） |
+
+**`/deposit/create` 请求**
+
+```json
+{"memberId": 159, "userName": "u_159", "amount": 100.00, "channelId": 63, "merchantId": 72}
+```
+
+**响应**
+
+```json
+{"code": 200, "msg": "success",
+ "data": {"orderNo": "DP20260101120000001", "amount": 100.0,
+          "address": "T…", "expireAt": 1767225600000}}
+```
+
+**`/deposit/callback` 请求**
+
+```json
+{"orderNo": "DP20260101001", "actualAmount": 100.00, "txid": "0xabc…"}
+```
+
+> ⚠️ 这个回调目前**不校验签名**，只靠 `orderNo` 匹配。生产环境必须补验签，
+> 否则任何人都能伪造到账通知。
+
+---
+
+## 风控 `/prod-api/risk`
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/rule/list` | 规则列表（`ruleName` / `ruleType` / `status`） |
+| POST | `/rule/add` | 新增规则 |
+| PUT | `/rule/edit` | 修改规则 |
+| PUT | `/rule/status` | 启用 / 停用规则 |
+| GET | `/blacklist/list` | 黑名单（`listType` / `value`） |
+| POST | `/blacklist/add` | 新增黑名单 |
+| DELETE | `/blacklist/{id}` | 删除黑名单 |
+| GET | `/hit/list` | 命中记录（`ruleId` / `handleStatus`） |
+| POST | `/hit/handle` | 处理命中（`{"hitId":1,"handleStatus":1}`） |
+| GET | `/limit/config` | 限额配置 |
+| PUT | `/limit/config` | 保存限额配置 |
+
+**规则类型**
+
+| `ruleType` | 含义 |
+|---|---|
+| `AMOUNT_SINGLE` | 单笔金额阈值 |
+| `AMOUNT_DAILY` | 日累计金额阈值 |
+| `IP_MULTI_ACCOUNT` | 同 IP 多账号 |
+| `DEVICE_REPEAT` | 同设备重复 |
+| `ADDRESS_BLACKLIST` | 收款地址黑名单 |
+| `TIME_AMOUNT` | 特定时段金额 |
+
+**动作**
+
+| `action` | 含义 |
+|---|---|
+| `BLOCK` | 直接拦截 |
+| `REVIEW` | 转人工审核 |
+| `DOWNGRADE` | 降级（限流） |
