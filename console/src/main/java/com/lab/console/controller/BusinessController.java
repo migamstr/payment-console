@@ -158,6 +158,52 @@ public class BusinessController {
         return Map.of("code", 200, "rows", rows, "total", rows.size());
     }
 
+    // ══════════════════════════════════════════════════════
+    // 文件下载
+    // ══════════════════════════════════════════════════════
+
+    /**
+     * 资源下载。
+     *
+     * ⚠️ 只 strip 了 `/profile/` 前缀，**没做 realpath 归一化**，
+     * 所以 `../` 可以穿出去读到 profile 目录之外的文件。
+     * 生产环境必须用 realpath 校验目标是否仍在允许目录内。
+     */
+    @GetMapping("/common/download/resource")
+    public Object downloadResource(@RequestHeader(value = "Authorization", required = false) String auth,
+                                   @RequestParam(defaultValue = "") String resource) {
+        if (auth == null || !auth.startsWith("Bearer ")
+                || jwtUtil.parseUsername(auth.substring(7).trim()) == null) {
+            return deny("/common/download/resource");
+        }
+        if (resource.isBlank()) return Map.of("code", 500, "msg", "resource 不能为空");
+
+        String name = resource.replace("/profile/", "").replaceFirst("^/+", "");
+        java.util.List<String> candidates = java.util.List.of(
+                com.lab.console.config.LabSeed.PROFILE_DIR + "/" + name,
+                com.lab.console.config.LabSeed.SECRETS_DIR + "/" + name,
+                name);
+
+        for (String cand : candidates) {
+            try {
+                java.io.File f = new java.io.File(cand);
+                if (f.isFile()) {
+                    String content = new String(java.nio.file.Files.readAllBytes(f.toPath()),
+                            java.nio.charset.StandardCharsets.UTF_8);
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("code", 200);
+                    m.put("msg", "success");
+                    m.put("fileName", f.getName());
+                    m.put("content", content.substring(0, Math.min(content.length(), 4096)));
+                    if (content.contains("flag{lab_")) m.put("flag", "flag{lab_lfi_resource}");
+                    return m;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return Map.of("code", 500, "msg", "文件不存在: " + resource);
+    }
+
     // ── helpers ───────────────────────────────────────────
     private boolean unauth(String auth) {
         return auth == null || !auth.startsWith("Bearer ") || jwtUtil.parseUsername(auth.substring(7).trim()) == null;
